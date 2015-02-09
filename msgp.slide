@@ -1,0 +1,258 @@
+Go and MessagePack
+
+Phil Hofer
+@ph_hofer
+http://github.com/philhofer
+
+* Structure
+
+- `msgp`: Why, How
+
+- Performance comparisons
+
+- Feature set
+
+- Your questions and live coding
+
+* How I Got Here
+
+* Riak and Protocol Buffers
+
+- Clients can use HTTP or Protocol Buffers over TCP.
+
+- I used (what is now) github.com/gogo/protobuf, which generates code (hooray!).
+
+- Gogoprotobuf is really, really fast. However...
+
+* Code Generation is Like Star Wars
+
+* The Phantom Menace
+
+Code bloat:
+
+.image wcl.png _ 600
+
+21,000 lines of generated code and 4,000 of human-written code.
+
+* Attack of the Clones
+
+.image gross.png _ 600
+
+Most of the code does the same ~10 lines of varint bit fiddling.
+
+(The `append` is the only thing preventing this from being inlined by the compiler.)
+
+* Revenge of the Sith
+
+.image pointers.png _ 600
+
+Memory fragmentation and a sea of usually-nil pointers.
+
+Fundamentally, there is some friction between Protocol Buffers and Go. They see the world differently.
+
+* An Aside: Implementation Complexity
+
+- github.com/gogo/protobuf is *99,941* lines of code as of this writing. 
+
+- *37,832* of those are generated...
+
+- ...which leaves *62,109*lines*of*code*over*91*subdirectories*
+
+* To Recap
+
+The cost of fast serialization was
+
+- 21,000 lines of Go
+
+- ... that I couldn't read
+
+- ... and were filled with pointers
+
+* Meanwhile...
+
+* A New Hope (July, 2014)
+
+.image gogenerate.png 200 _
+
+.image a-new-hope.jpg 300 _
+
+* 'The Go Way'
+
+* Goals
+
+- MessagePack, because no code generator existed at the time
+
+- `struct` as schema; Go -> Go source generation
+
+- Speed
+
+- Preservation of standard library idioms
+
+- Easy hook into `go`generate`
+
+- Generate human-readable code
+
+* About MessagePack
+
+- Binary, schemaless, self-describing
+
+- Simple, _extendable_ type system (comparable to JSON)
+
+- Compact
+
+- Small but well-established community
+
+* MessagePack Type System
+
+.image msgpack.png _ 600
+
+Map, Array, Bin, Str, Int, Uint, Float32, Float64, Bool, Nil, Extension
+
+* Typical Use Cases
+
+- DB -> backend -> memcached -> backend -> JSON -> frontend
+ 
+- Redis (similar to Memcached, but can also parse MessagePack via Lua scripting)
+
+- There _is_ an RPC spec...
+
+* How It Works
+
+- Get type declarations (`*ast.TypeDecl`)
+
+- Use `msgp/parse` to transform into `gen.Elem`
+
+- Use `msgp/gen` to turn each `gen.Elem` into a method
+
+- Satisfies `Marshaler`, `Unmarshaler`, `Encodable`, `Decodable`, `Sizer`
+
+- `msgp` is both a tool and a library
+
+* Weird Edge Cases
+
+- `[]byte` and `time.Time` are primitives
+
+- Short-cut size calculations for slice/array of primitives
+
+- Passing the concrete type of an extension by reference
+
+Consider:
+
+	type A struct {
+		*Embedded
+		B, C int
+		D struct {
+			E, F *A
+		}
+	}
+
+* Is It Fast?
+
+.image perf.png _ 800
+
+* What About Streams?
+
+.image pipe.png _ 900
+
+* How?
+
+- Write, benchmark, repeat
+
+- Careful attention to leaf functions (inlining)
+
+- No unnecessary copying or allocation
+
+- Object re-use
+
+- Buffering (custom)
+
+* Extensions
+
+Users can extend the type sytem!
+
+	type Extension interface {
+		Len() int
+		ExtensionType() int8
+		MarshalBinaryTo([]byte) error
+		UnmarshalBinary([]byte) error
+	}
+
+`msgp` supports `complex64`, `complex128`, and `time.Time` natively through this feature.
+
+* Extensions: A Quick Example
+
+.code main.go /START OMIT/,/END OMIT/
+
+* Errors
+
+Inspired by `net.Error` and `syscall.OpError`:
+
+	type Error interface {
+		error
+		Resumable() bool
+	}
+
+Every error that originates in `msgp` implements `Error`.
+
+* Type Information
+
+	func (r *Reader) NextType() (Type, error)
+
+	func NextType(b []byte) (Type, error)
+
+You can implement arbitrarily complex decoding procedures.
+
+This is, effectively, how MessagePack -> JSON translation is implemented.
+
+* Skip
+
+	func (r *Reader) Skip() error
+
+	func Skip(b []byte) ([]byte, error)
+
+`Skip` is O(1) for non-composite objects.
+
+There are also a handful of functions for manipulating raw data.
+
+* Raw Type
+
+	type Request struct {
+		Header map[string]string
+		Body   msgp.Raw
+	}
+
+`msgp.Raw` knows how to unmarshal anything into itself.
+
+Allows for:
+
+- Partial/lazy de-serialization
+
+- (User-implemented) variant (union) types
+
+- Advanced RPC semantics
+
+* Directives
+
+	//msgp:tuple Location
+
+	type Location struct {
+		Lat, Long, Alt float64
+	}
+
+This will generate code that encodes `Location{0,0,0}` as
+
+	[0.0, 0.0, 0.0]
+
+instead of
+	
+	{"Lat":0.0, "Long":0.0, "Alt":0.0}
+
+For small objects, this is more than twice as fast.
+
+* The Future
+
+.play syn/main.go /START OMIT/,/END OMIT/
+
+
+
+
