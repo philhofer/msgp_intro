@@ -16,59 +16,71 @@ http://github.com/philhofer
 
 * How I Got Here
 
-* Riak and Protocol Buffers
+* The Standard Library Way
 
-- Clients can use HTTP or Protocol Buffers over TCP.
+Declare a type in go:
 
-- I used (what is now) github.com/gogo/protobuf, which generates code (hooray!).
+	type Data struct {
+		Thing string `json:"thing"`
+	}
 
-- Gogoprotobuf is really, really fast. However...
+Follow with
 
-* Code Generation is Like Star Wars
+	data, err := json.Marshal(&v)
 
-* The Phantom Menace
+* Why It's Great
 
-Code bloat:
+- Declare sane data structures
 
-.image wcl.png _ 600
+- Uniform API for everything (json/xml/gob)
 
-21,000 lines of generated code and 4,000 of human-written code.
+- Good third-party libs follow this idiom
 
-* Attack of the Clones
+* Why It's Awful
 
-.image gross.png _ 600
+- Reflection is slow
 
-Most of the code does the same ~10 lines of varint bit fiddling.
+- `interface{}` is sad
 
-(The `append` is the only thing preventing this from being inlined by the compiler.)
+* I Need More Speed
 
-* Revenge of the Sith
+* The Protocol Buffers Way
+
+- Declare sane data type in .proto file
+
+- Generate go code; examine output
+
+- Weep developer tears; commit
+
+* Why It's Great
+
+- Speed
+
+- Uniformity
+
+* Why It's Awful
+
+- Everything else
+
+(Even Kenton Varda dislikes protocol buffers.)
+
+* Exhibit A
 
 .image pointers.png _ 600
 
-Memory fragmentation and a sea of usually-nil pointers.
+* Exibit B
 
-Fundamentally, there is some friction between Protocol Buffers and Go. They see the world differently.
+.image gross.png _ 600
 
-* An Aside: Implementation Complexity
+* In Summary
 
-- github.com/gogo/protobuf is *99,941* lines of code as of this writing. 
+- Sane (user-defined) data structures
 
-- *37,832* of those are generated...
+- Speed
 
-- ...which leaves *62,109*lines*of*code*over*91*subdirectories*
+- Pick one
 
-* To Recap
-
-The cost of fast serialization was
-
-- 21,000 lines of Go
-
-- ... that I couldn't read
-
-- ... and were filled with pointers
-
-* Meanwhile...
+* There Is Hope
 
 * A New Hope (July, 2014)
 
@@ -78,19 +90,9 @@ The cost of fast serialization was
 
 * 'The Go Way'
 
-* Goals
+* Objective
 
-- MessagePack, because no code generator existed at the time
-
-- `struct` as schema; Go -> Go source generation
-
-- Speed
-
-- Preservation of standard library idioms
-
-- Easy hook into `go`generate`
-
-- Generate human-readable code
+Generate fast, human-readable serialization code from existing type declarations.
 
 * About MessagePack
 
@@ -118,15 +120,47 @@ Map, Array, Bin, Str, Int, Uint, Float32, Float64, Bool, Nil, Extension
 
 * How It Works
 
-- Get type declarations (`*ast.TypeDecl`)
+.code main.go /START DECL OMIT/,/END DECL OMIT/
 
-- Use `msgp/parse` to transform into `gen.Elem`
+* Some Output
 
-- Use `msgp/gen` to turn each `gen.Elem` into a method
+.code main_gen.go /START GEN OMIT/,/END GEN OMIT/
 
-- Satisfies `Marshaler`, `Unmarshaler`, `Encodable`, `Decodable`, `Sizer`
+* A More Interesting Example
 
-- `msgp` is both a tool and a library
+.code main.go /START CPT OMIT/,/END CPT OMIT/
+
+The `msgp.Extension` interface:
+
+	type Extension interface {
+		Len() int
+		ExtensionType() int8
+		MarshalBinaryTo([]byte) error
+		UnmarshalBinary([]byte) error
+	}
+
+* Output
+
+.code main_gen.go /START CPTGEN OMIT/,/END CPTGEN OMIT/
+
+* Extensions: A Quick Implementation
+
+.code main.go /START OMIT/,/END OMIT/
+
+* What Can We Generate?
+
+Right now, the following:
+
+	MarshalMsg([]byte) ([]byte, error)
+
+	UnmarshalMsg([]byte) ([]byte, error)
+
+	EncodeMsg(*msgp.Writer) error
+
+	DecodeMsg(*msgp.Reader) error
+
+	Msgsize() int
+
 
 * Weird Edge Cases
 
@@ -145,6 +179,18 @@ Consider:
 			E, F *A
 		}
 	}
+
+* Supported types
+
+- Builtin primitives, plus `time.Time`
+
+- Maps with string keys
+
+- Arrays/slices of supported types
+
+- Structs of supported types
+
+- Types with generated methods, or `Extension`
 
 * Is It Fast?
 
@@ -166,22 +212,7 @@ Consider:
 
 - Buffering (custom)
 
-* Extensions
-
-Users can extend the type sytem!
-
-	type Extension interface {
-		Len() int
-		ExtensionType() int8
-		MarshalBinaryTo([]byte) error
-		UnmarshalBinary([]byte) error
-	}
-
-`msgp` supports `complex64`, `complex128`, and `time.Time` natively through this feature.
-
-* Extensions: A Quick Example
-
-.code main.go /START OMIT/,/END OMIT/
+* Neat Library Features
 
 * Errors
 
@@ -227,31 +258,13 @@ Allows for:
 
 - Partial/lazy de-serialization
 
-- (User-implemented) variant (union) types
+- (User-implemented) union types
 
 - Advanced RPC semantics
 
-* Directives
-
-	//msgp:tuple Location
-
-	type Location struct {
-		Lat, Long, Alt float64
-	}
-
-This will generate code that encodes `Location{0,0,0}` as
-
-	[0.0, 0.0, 0.0]
-
-instead of
-	
-	{"Lat":0.0, "Long":0.0, "Alt":0.0}
-
-For small objects, this is more than twice as fast.
-
 * The Future
 
-.play syn/main.go /START OMIT/,/END OMIT/
+.code syn/main.go /START OMIT/,/END OMIT/
 
 
 

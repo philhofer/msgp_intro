@@ -11,15 +11,23 @@ func init() {
 	msgp.RegisterExtension(94, func() msgp.Extension { return &RGBA{} })
 }
 
+// START DECL OMIT
+
 //go:generate msgp
 
-//msgp:tuple ColoredPoint
+type Blob struct {
+	Name string  `msg:"name"`
+	Data []byte  `msg:"data"`
+	Num  float64 `msg:"num"`
+}
+
+// END DECL OMIT
 
 // START OMIT
 type RGBA [4]uint8
 
-func (r RGBA) ExtensionType() int8 { return 94 }
-func (r *RGBA) Len() int           { return 4 }
+func (r *RGBA) ExtensionType() int8 { return 94 }
+func (r *RGBA) Len() int            { return 4 }
 
 func (r *RGBA) MarshalBinaryTo(b []byte) error {
 	if copy(b, (*r)[:]) != 4 {
@@ -41,10 +49,16 @@ func (r *RGBA) MarshalJSON() ([]byte, error) {
 	return []byte(fmt.Sprintf("[%d, %d, %d, %d]", r[0], r[1], r[2], r[3])), nil
 }
 
+// START CPT OMIT
+
+//msgp:tuple ColoredPoint
+
 type ColoredPoint struct {
 	X, Y  float64
 	Color RGBA `msg:",extension"`
 }
+
+// END CPT OMIT
 
 func main() {
 	c := ColoredPoint{
