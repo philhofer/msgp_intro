@@ -6,13 +6,17 @@ http://github.com/philhofer
 
 * Structure
 
-- `msgp`: Why, How
+- `msgp`: Why?
 
-- Performance comparisons
+- Use
 
 - Feature set
 
 - Your questions and live coding
+
+Slides at:
+
+.link http://go-talks.appspot.com/github.com/philhofer/msgp_intro
 
 * How I Got Here
 
@@ -46,23 +50,27 @@ Follow with
 
 * The Protocol Buffers Way
 
-- Declare sane data type in .proto file
+- Declare sane data type in an external file
 
-- Generate go code; examine output
+- Generate go code; examine
 
 - Weep developer tears; commit
 
 * Why It's Great
 
-- Speed
+- Speed (and size)
 
-- Uniformity
+- Uniformity (polyglot platforms)
 
 * Why It's Awful
 
-- Everything else
+- Pointers, everywhere
 
-(Even Kenton Varda dislikes protocol buffers.)
+- Little to no native stream support
+
+- Data that isn't self-describing...
+
+(Note: even Kenton Varda rags on protocol buffers.)
 
 * Exhibit A
 
@@ -94,29 +102,23 @@ Follow with
 
 Generate fast, human-readable serialization code from existing type declarations.
 
+"Speed or Sanity" is a false choice.
+
+.link http://github.com/tinylib/msgp
+
 * About MessagePack
 
-- Binary, schemaless, self-describing
+- Simple, compact binary format
 
-- Simple, _extendable_ type system (comparable to JSON)
+- Simple, extendable type system
 
-- Compact
-
-- Small but well-established community
+- Supported in many, many languages
 
 * MessagePack Type System
 
 .image msgpack.png _ 600
 
 Map, Array, Bin, Str, Int, Uint, Float32, Float64, Bool, Nil, Extension
-
-* Typical Use Cases
-
-- DB -> backend -> memcached -> backend -> JSON -> frontend
- 
-- Redis (similar to Memcached, but can also parse MessagePack via Lua scripting)
-
-- There _is_ an RPC spec...
 
 * How It Works
 
@@ -125,6 +127,28 @@ Map, Array, Bin, Str, Int, Uint, Float32, Float64, Bool, Nil, Extension
 * Some Output
 
 .code main_gen.go /START GEN OMIT/,/END GEN OMIT/
+
+* What Can We Generate?
+
+Right now, the following:
+
+	MarshalMsg([]byte) ([]byte, error)
+
+	UnmarshalMsg([]byte) ([]byte, error)
+
+	EncodeMsg(*msgp.Writer) error
+
+	DecodeMsg(*msgp.Reader) error
+
+	Msgsize() int
+
+* From Go to Go
+
+- Parse source with `go/ast`; extract `*ast.TypeDecl`
+
+- Translate `*ast.TypeDecl` to `gen.Elem`
+
+- Use a `gen.Generator` to translate `gen.Elem` to method(s)
 
 * A More Interesting Example
 
@@ -147,72 +171,27 @@ The `msgp.Extension` interface:
 
 .code main.go /START OMIT/,/END OMIT/
 
-* What Can We Generate?
-
-Right now, the following:
-
-	MarshalMsg([]byte) ([]byte, error)
-
-	UnmarshalMsg([]byte) ([]byte, error)
-
-	EncodeMsg(*msgp.Writer) error
-
-	DecodeMsg(*msgp.Reader) error
-
-	Msgsize() int
-
-
-* Weird Edge Cases
-
-- `[]byte` and `time.Time` are primitives
-
-- Short-cut size calculations for slice/array of primitives
-
-- Passing the concrete type of an extension by reference
-
-Consider:
-
-	type A struct {
-		*Embedded
-		B, C int
-		D struct {
-			E, F *A
-		}
-	}
-
-* Supported types
-
-- Builtin primitives, plus `time.Time`
-
-- Maps with string keys
-
-- Arrays/slices of supported types
-
-- Structs of supported types
-
-- Types with generated methods, or `Extension`
-
-* Is It Fast?
+* Is It Fast? A (Mediocre) Benchmark
 
 .image perf.png _ 800
 
-* What About Streams?
+* A (Better) Benchmark
 
 .image pipe.png _ 900
 
 * How?
 
-- Write, benchmark, repeat
+- Measure everything
 
-- Careful attention to leaf functions (inlining)
+- Exploit knowledge of `gc` (inlining, esc)
+
+	$ go build -gcflags -m
 
 - No unnecessary copying or allocation
 
-- Object re-use
+- Buffer management
 
-- Buffering (custom)
-
-* Neat Library Features
+* The Library
 
 * Errors
 
@@ -241,15 +220,15 @@ This is, effectively, how MessagePack -> JSON translation is implemented.
 
 	func Skip(b []byte) ([]byte, error)
 
-`Skip` is O(1) for non-composite objects.
+`Skip` is faster than your RAM.
 
-There are also a handful of functions for manipulating raw data.
+Also, `(*Reader).Skip` uses `io.Seek()` if it can.
 
 * Raw Type
 
 	type Request struct {
-		Header map[string]string
-		Body   msgp.Raw
+		Header map[string]string `msg:"header"`
+		Body   msgp.Raw          `msg:"body"`
 	}
 
 `msgp.Raw` knows how to unmarshal anything into itself.
@@ -260,12 +239,14 @@ Allows for:
 
 - (User-implemented) union types
 
-- Advanced RPC semantics
+- Declarative application protocol definitions
 
 * The Future
 
+.link http://github.com/tinylib/synapse
+
 .code syn/main.go /START OMIT/,/END OMIT/
 
-
+Right now: 1.1M req/res cycles per second over `net.Pipe()`.
 
 
